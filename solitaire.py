@@ -353,6 +353,7 @@ class WorkStack(StackBase):
             if card.is_face_up:
                 offset_y = self.offset_y
             else:
+<<<<<<< HEAD
                 offset_y = self.offset_y_back
 
 
@@ -508,3 +509,5 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
 
         quit_action = QAction("Quit", self)
+=======
+>>>>>>> 8874f53f1a8eb04af1ef1c109ba57531b3653d49
