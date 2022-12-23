@@ -1,3 +1,11 @@
+from PyQt5.QtGui import *
+from PyQt5.QtWidgets import *
+from PyQt5.QtCore import *
+
+import os
+import random
+
+
 WINDOW_SIZE = 840, 600
 
 CARD_DIMENSIONS = QSize(80, 116)
@@ -184,3 +192,319 @@ class StackBase(QGraphicsRectItem):
 
     def is_free_card(self, card):
         return False
+
+class DeckStack(StackBase):
+
+    offset_x = -0.2
+    offset_y = -0.3
+
+    restack_counter = 0
+
+    def reset(self):
+        super(DeckStack, self).reset()
+        self.restack_counter = 0
+        self.set_color(Qt.green)
+
+    def stack_cards(self, cards):
+        for card in cards:
+            self.add_card(card)
+            card.turn_back_up()
+
+    def can_restack(self, n_rounds=3):
+        return n_rounds is None or self.restack_counter < n_rounds-1
+
+    def update_stack_status(self, n_rounds):
+        if not self.can_restack(n_rounds):
+            self.set_color(Qt.red)
+        else:
+            # We only need this if players change the round number during a game.
+            self.set_color(Qt.green)
+
+    def restack(self, fromstack):
+        self.restack_counter += 1
+
+        # We need to slice as we're adding to the list, reverse to stack back
+        # in the original order.
+        for card in fromstack.cards[::-1]:
+            fromstack.remove_card(card)
+            self.add_card(card)
+            card.turn_back_up()
+
+    def take_top_card(self):
+        try:
+            card = self.cards[-1]
+            self.remove_card(card)
+            return card
+        except IndexError:
+            pass
+
+    def set_color(self, color):
+        color = QColor(color)
+        color.setAlpha(50)
+        brush = QBrush(color)
+        self.setBrush(brush)
+        self.setPen(QPen(Qt.NoPen))
+
+    def is_valid_drop(self, card):
+        return False
+
+
+class DealStack(StackBase):
+
+    offset_x = 20
+    offset_y = 0
+
+    spread_from = 0
+
+    def setup(self):
+        self.setPen(QPen(Qt.NoPen))
+        color = QColor(Qt.black)
+        color.setAlpha(50)
+        brush = QBrush(color)
+        self.setBrush(brush)
+
+    def reset(self):
+        super(DealStack, self).reset()
+        self.spread_from = 0  # Card index to start spreading cards out.
+
+    def is_valid_drop(self, card):
+        return False
+
+    def is_free_card(self, card):
+        return card == self.cards[-1]
+
+    def update(self):
+        # Only spread the top 3 cards
+        offset_x = 0
+        for n, card in enumerate(self.cards):
+            card.setPos(self.pos() + QPointF(offset_x, 0))
+            card.setZValue(n)
+
+            if n >= self.spread_from:
+                offset_x = offset_x + self.offset_x
+
+
+class WorkStack(StackBase):
+
+    offset_x = 0
+    offset_y = 15
+    offset_y_back = 5
+
+    def setup(self):
+        self.setPen(QPen(Qt.NoPen))
+        color = QColor(Qt.black)
+        color.setAlpha(50)
+        brush = QBrush(color)
+        self.setBrush(brush)
+
+    def activate(self):
+        # Raise z-value of this stack so children float above all other cards.
+        self.setZValue(1000)
+
+    def deactivate(self):
+        self.setZValue(-1)
+
+    def is_valid_drop(self, card):
+        if not self.cards:
+            return True
+
+        if (card.color != self.cards[-1].color and
+            card.value == self.cards[-1].value -1):
+            return True
+
+        return False
+
+    def is_free_card(self, card):
+        return card.is_face_up #self.cards and card == self.cards[-1]
+
+    def add_card(self, card, update=True):
+        if self.cards:
+            card.setParentItem(self.cards[-1])
+        else:
+            card.setParentItem(self)
+
+        super(WorkStack, self).add_card(card, update=update)
+
+    def remove_card(self, card):
+        index = self.cards.index(card)
+        self.cards, cards = self.cards[:index], self.cards[index:]
+
+        for card in cards:
+            # Remove card and all children, returning a list of cards removed in order.
+            card.setParentItem(None)
+            card.stack = None
+
+        self.update()
+        return cards
+
+    def remove_all_cards(self):
+        for card in self.cards[:]:
+            card.setParentItem(None)
+            card.stack = None
+        self.cards = []
+
+    def update(self):
+        self.stack.setZValue(-1) # Reset this stack the the background.
+        # Only spread the top 3 cards
+        offset_y = 0
+        for n, card in enumerate(self.cards):
+            card.setPos(QPointF(0, offset_y))
+
+            if card.is_face_up:
+                offset_y = self.offset_y
+            else:
+                offset_y = self.offset_y_back
+
+
+class DropStack(StackBase):
+
+    offset_x = -0.2
+    offset_y = -0.3
+
+    suit = None
+    value = 0
+
+    def setup(self):
+        self.signals = Signals()
+        color = QColor(Qt.blue)
+        color.setAlpha(50)
+        pen = QPen(color)
+        pen.setWidth(5)
+        self.setPen(pen)
+
+    def reset(self):
+        super(DropStack, self).reset()
+        self.suit = None
+        self.value = 0
+
+    def is_valid_drop(self, card):
+        if ((self.suit is None or card.suit == self.suit) and
+                (card.value == self.value + 1)):
+            return True
+
+        return False
+
+    def add_card(self, card, update=True):
+        super(DropStack, self).add_card(card, update=update)
+        self.suit = card.suit
+        self.value = self.cards[-1].value
+
+        if self.is_complete:
+            self.signals.complete.emit()
+
+    def remove_card(self, card):
+        super(DropStack, self).remove_card(card)
+        self.value = self.cards[-1].value if self.cards else 0
+
+    @property
+    def is_complete(self):
+        return self.value == 13
+
+
+class DealTrigger(QGraphicsRectItem):
+
+    def __init__(self, *args, **kwargs):
+        super(DealTrigger, self).__init__(*args, **kwargs)
+        self.setRect(QRectF(DEAL_RECT))
+        self.setZValue(1000)
+
+        pen = QPen(Qt.NoPen)
+        self.setPen(pen)
+
+        self.signals = Signals()
+
+    def mousePressEvent(self, e):
+        self.signals.clicked.emit()
+
+
+class AnimationCover(QGraphicsRectItem):
+    def __init__(self, *args, **kwargs):
+        super(AnimationCover, self).__init__(*args, **kwargs)
+        self.setRect(QRectF(0, 0, *WINDOW_SIZE))
+        self.setZValue(5000)
+        pen = QPen(Qt.NoPen)
+        self.setPen(pen)
+
+    def mousePressEvent(self, e):
+        e.accept()
+
+
+class MainWindow(QMainWindow):
+
+    def __init__(self, *args, **kwargs):
+        super(MainWindow, self).__init__(*args, **kwargs)
+
+        view = QGraphicsView()
+        self.scene = QGraphicsScene()
+        self.scene.setSceneRect(QRectF(0, 0, *WINDOW_SIZE))
+
+        felt = QBrush(QPixmap(os.path.join('images','felt.png')))
+        self.scene.setBackgroundBrush(felt)
+
+        name = QGraphicsPixmapItem()
+        name.setPixmap(QPixmap(os.path.join('images','ronery.png')))
+        name.setPos(QPointF(170, 375))
+        self.scene.addItem(name)
+
+        view.setScene(self.scene)
+
+        # Timer for the win animation only.
+        self.timer = QTimer()
+        self.timer.setInterval(5)
+        self.timer.timeout.connect(self.win_animation)
+
+        self.animation_event_cover = AnimationCover()
+        self.scene.addItem(self.animation_event_cover)
+
+        menu = self.menuBar().addMenu("&Game")
+
+        deal_action = QAction(QIcon(os.path.join('images', 'playing-card.png')), "Deal...", self)
+        deal_action.triggered.connect(self.restart_game)
+        menu.addAction(deal_action)
+
+        menu.addSeparator()
+
+        deal1_action = QAction("1 card", self)
+        deal1_action.setCheckable(True)
+        deal1_action.triggered.connect(lambda: self.set_deal_n(1))
+        menu.addAction(deal1_action)
+
+        deal3_action = QAction("3 card", self)
+        deal3_action.setCheckable(True)
+        deal3_action.setChecked(True)
+        deal3_action.triggered.connect(lambda: self.set_deal_n(3))
+
+        menu.addAction(deal3_action)
+
+        dealgroup = QActionGroup(self)
+        dealgroup.addAction(deal1_action)
+        dealgroup.addAction(deal3_action)
+        dealgroup.setExclusive(True)
+
+        menu.addSeparator()
+
+        rounds3_action = QAction("3 rounds", self)
+        rounds3_action.setCheckable(True)
+        rounds3_action.setChecked(True)
+        rounds3_action.triggered.connect(lambda: self.set_rounds_n(3))
+        menu.addAction(rounds3_action)
+
+        rounds5_action = QAction("5 rounds", self)
+        rounds5_action.setCheckable(True)
+        rounds5_action.triggered.connect(lambda: self.set_rounds_n(5))
+        menu.addAction(rounds5_action)
+
+        roundsu_action = QAction("Unlimited rounds", self)
+        roundsu_action.setCheckable(True)
+        roundsu_action.triggered.connect(lambda: self.set_rounds_n(None))
+        menu.addAction(roundsu_action)
+
+        roundgroup = QActionGroup(self)
+        roundgroup.addAction(rounds3_action)
+        roundgroup.addAction(rounds5_action)
+        roundgroup.addAction(roundsu_action)
+        roundgroup.setExclusive(True)
+
+        menu.addSeparator()
+
+        quit_action = QAction("Quit", self)
