@@ -353,3 +353,158 @@ class WorkStack(StackBase):
             if card.is_face_up:
                 offset_y = self.offset_y
             else:
+                offset_y = self.offset_y_back
+
+
+class DropStack(StackBase):
+
+    offset_x = -0.2
+    offset_y = -0.3
+
+    suit = None
+    value = 0
+
+    def setup(self):
+        self.signals = Signals()
+        color = QColor(Qt.blue)
+        color.setAlpha(50)
+        pen = QPen(color)
+        pen.setWidth(5)
+        self.setPen(pen)
+
+    def reset(self):
+        super(DropStack, self).reset()
+        self.suit = None
+        self.value = 0
+
+    def is_valid_drop(self, card):
+        if ((self.suit is None or card.suit == self.suit) and
+                (card.value == self.value + 1)):
+            return True
+
+        return False
+
+    def add_card(self, card, update=True):
+        super(DropStack, self).add_card(card, update=update)
+        self.suit = card.suit
+        self.value = self.cards[-1].value
+
+        if self.is_complete:
+            self.signals.complete.emit()
+
+    def remove_card(self, card):
+        super(DropStack, self).remove_card(card)
+        self.value = self.cards[-1].value if self.cards else 0
+
+    @property
+    def is_complete(self):
+        return self.value == 13
+
+
+class DealTrigger(QGraphicsRectItem):
+
+    def __init__(self, *args, **kwargs):
+        super(DealTrigger, self).__init__(*args, **kwargs)
+        self.setRect(QRectF(DEAL_RECT))
+        self.setZValue(1000)
+
+        pen = QPen(Qt.NoPen)
+        self.setPen(pen)
+
+        self.signals = Signals()
+
+    def mousePressEvent(self, e):
+        self.signals.clicked.emit()
+
+
+class AnimationCover(QGraphicsRectItem):
+    def __init__(self, *args, **kwargs):
+        super(AnimationCover, self).__init__(*args, **kwargs)
+        self.setRect(QRectF(0, 0, *WINDOW_SIZE))
+        self.setZValue(5000)
+        pen = QPen(Qt.NoPen)
+        self.setPen(pen)
+
+    def mousePressEvent(self, e):
+        e.accept()
+
+
+class MainWindow(QMainWindow):
+
+    def __init__(self, *args, **kwargs):
+        super(MainWindow, self).__init__(*args, **kwargs)
+
+        view = QGraphicsView()
+        self.scene = QGraphicsScene()
+        self.scene.setSceneRect(QRectF(0, 0, *WINDOW_SIZE))
+
+        felt = QBrush(QPixmap(os.path.join('images','felt.png')))
+        self.scene.setBackgroundBrush(felt)
+
+        name = QGraphicsPixmapItem()
+        name.setPixmap(QPixmap(os.path.join('images','ronery.png')))
+        name.setPos(QPointF(170, 375))
+        self.scene.addItem(name)
+
+        view.setScene(self.scene)
+
+        # Timer for the win animation only.
+        self.timer = QTimer()
+        self.timer.setInterval(5)
+        self.timer.timeout.connect(self.win_animation)
+
+        self.animation_event_cover = AnimationCover()
+        self.scene.addItem(self.animation_event_cover)
+
+        menu = self.menuBar().addMenu("&Game")
+
+        deal_action = QAction(QIcon(os.path.join('images', 'playing-card.png')), "Deal...", self)
+        deal_action.triggered.connect(self.restart_game)
+        menu.addAction(deal_action)
+
+        menu.addSeparator()
+
+        deal1_action = QAction("1 card", self)
+        deal1_action.setCheckable(True)
+        deal1_action.triggered.connect(lambda: self.set_deal_n(1))
+        menu.addAction(deal1_action)
+
+        deal3_action = QAction("3 card", self)
+        deal3_action.setCheckable(True)
+        deal3_action.setChecked(True)
+        deal3_action.triggered.connect(lambda: self.set_deal_n(3))
+
+        menu.addAction(deal3_action)
+
+        dealgroup = QActionGroup(self)
+        dealgroup.addAction(deal1_action)
+        dealgroup.addAction(deal3_action)
+        dealgroup.setExclusive(True)
+
+        menu.addSeparator()
+
+        rounds3_action = QAction("3 rounds", self)
+        rounds3_action.setCheckable(True)
+        rounds3_action.setChecked(True)
+        rounds3_action.triggered.connect(lambda: self.set_rounds_n(3))
+        menu.addAction(rounds3_action)
+
+        rounds5_action = QAction("5 rounds", self)
+        rounds5_action.setCheckable(True)
+        rounds5_action.triggered.connect(lambda: self.set_rounds_n(5))
+        menu.addAction(rounds5_action)
+
+        roundsu_action = QAction("Unlimited rounds", self)
+        roundsu_action.setCheckable(True)
+        roundsu_action.triggered.connect(lambda: self.set_rounds_n(None))
+        menu.addAction(roundsu_action)
+
+        roundgroup = QActionGroup(self)
+        roundgroup.addAction(rounds3_action)
+        roundgroup.addAction(rounds5_action)
+        roundgroup.addAction(roundsu_action)
+        roundgroup.setExclusive(True)
+
+        menu.addSeparator()
+
+        quit_action = QAction("Quit", self)
