@@ -353,7 +353,6 @@ class WorkStack(StackBase):
             if card.is_face_up:
                 offset_y = self.offset_y
             else:
-<<<<<<< HEAD
                 offset_y = self.offset_y_back
 
 
@@ -509,4 +508,160 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
 
         quit_action = QAction("Quit", self)
+        quit_action.triggered.connect(self.quit)
+        menu.addAction(quit_action)
 
+        self.deck = []
+        self.deal_n = 3  # Number of cards to deal each time
+        self.rounds_n = 3  # Number of rounds (restacks) before end.
+
+        for suit in SUITS:
+            for value in range(1, 14):
+                card = Card(value, suit)
+                self.deck.append(card)
+                self.scene.addItem(card)
+                card.signals.doubleclicked.connect(lambda card=card: self.auto_drop_card(card))
+
+        self.setCentralWidget(view)
+        self.setFixedSize(*WINDOW_SIZE)
+
+        self.deckstack = DeckStack()
+        self.deckstack.setPos(OFFSET_X, OFFSET_Y)
+        self.scene.addItem(self.deckstack)
+
+        # Set up the working locations.
+        self.works = []
+        for n in range(7):
+            stack = WorkStack()
+            stack.setPos(OFFSET_X + CARD_SPACING_X*n, WORK_STACK_Y)
+            self.scene.addItem(stack)
+            self.works.append(stack)
+
+        self.drops = []
+        # Set up the drop locations.
+        for n in range(4):
+            stack = DropStack()
+            stack.setPos(OFFSET_X + CARD_SPACING_X * (3+n), OFFSET_Y)
+            stack.signals.complete.connect(self.check_win_condition)
+
+            self.scene.addItem(stack)
+            self.drops.append(stack)
+
+        # Add the deal location.
+        self.dealstack = DealStack()
+        self.dealstack.setPos(OFFSET_X + CARD_SPACING_X, OFFSET_Y)
+        self.scene.addItem(self.dealstack)
+
+        # Add the deal click-trigger.
+        dealtrigger = DealTrigger()
+        dealtrigger.signals.clicked.connect(self.deal)
+        self.scene.addItem(dealtrigger)
+
+        self.shuffle_and_stack()
+
+        self.setWindowTitle("Ronery")
+        self.show()
+
+    def restart_game(self):
+        reply = QMessageBox.question(self, "Deal again", "Are you sure you want to start a new game?",
+                                      QMessageBox.Yes | QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            self.shuffle_and_stack()
+
+    def quit(self):
+        self.close()
+
+    def set_deal_n(self, n):
+        self.deal_n = n
+
+    def set_rounds_n(self, n):
+        self.rounds_n = n
+        self.deckstack.update_stack_status(self.rounds_n)
+
+    def shuffle_and_stack(self):
+        # Stop any ongoing animation.
+        self.timer.stop()
+        self.animation_event_cover.hide()
+
+        # Remove cards from all stacks.
+        for stack in [self.deckstack, self.dealstack] + self.drops + self.works:
+            stack.reset()
+
+        random.shuffle(self.deck)
+
+        # Deal out from the top of the deck, turning over the
+        # final card on each line.
+        cards = self.deck[:]
+        for n, workstack in enumerate(self.works, 1):
+            for a in range(n):
+                card = cards.pop()
+                workstack.add_card(card)
+                card.turn_back_up()
+                if a == n-1:
+                    card.turn_face_up()
+
+        # Ensure removed from all other stacks here.
+        self.deckstack.stack_cards(cards)
+
+    def deal(self):
+        if self.deckstack.cards:
+            self.dealstack.spread_from = len(self.dealstack.cards)
+            for n in range(self.deal_n):
+                card = self.deckstack.take_top_card()
+                if card:
+                    self.dealstack.add_card(card)
+                    card.turn_face_up()
+
+        elif self.deckstack.can_restack(self.rounds_n):
+            self.deckstack.restack(self.dealstack)
+            self.deckstack.update_stack_status(self.rounds_n)
+
+    def auto_drop_card(self, card):
+        for stack in self.drops:
+            if stack.is_valid_drop(card):
+                card.stack.remove_card(card)
+                stack.add_card(card)
+                break
+
+    def check_win_condition(self):
+        complete = all(s.is_complete for s in self.drops)
+        if complete:
+            # Add click-proof cover to play area.
+            self.animation_event_cover.show()
+            # Get the stacks of cards from the drop,stacks.
+            self.timer.start()
+
+    def win_animation(self):
+        # Start off a new card
+        for drop in self.drops:
+            if drop.cards:
+                card = drop.cards.pop()
+                if card.vector is None:
+                    card.vector = QPoint(-random.randint(3, 10), -random.randint(0, 10))
+                    break
+
+        for card in self.deck:
+            if card.vector is not None:
+                card.setPos(card.pos() + card.vector)
+                card.vector += QPoint(0, 1)  # Gravity
+                if card.pos().y() > WINDOW_SIZE[1] - CARD_DIMENSIONS.height():
+                    # Bounce the card, losing some energy.
+                    card.vector = QPoint(card.vector.x(), -max(1, int(card.vector.y() * BOUNCE_ENERGY)) )
+                    # Bump back up to base of screen.
+                    card.setPos(card.pos().x(), WINDOW_SIZE[1] - CARD_DIMENSIONS.height())
+
+                if card.pos().x() < - CARD_DIMENSIONS.width():
+                    card.vector = None
+                    # Put the card back where it started.
+                    card.stack.add_card(card)
+
+
+
+
+
+if __name__ == '__main__':
+
+    app = QApplication([])
+    window = MainWindow()
+    app.exec_()
