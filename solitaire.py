@@ -1,6 +1,7 @@
 from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
+from pathlib import Path
 
 import os
 import random
@@ -511,6 +512,22 @@ class MainWindow(QMainWindow):
         quit_action.triggered.connect(self.quit)
         menu.addAction(quit_action)
 
+        customization = self.menuBar().addMenu("&Кастомизация")
+
+        wallpapers_action = QAction("Изменить фон", self)
+        wallpapers_action.triggered.connect(self.change_wallpapers)
+        customization.addAction(wallpapers_action)
+
+        card_image_action = QAction("Изменить изображение карты [WIP]", self)
+        card_image_action.triggered.connect(self.change_card_image)
+        customization.addAction(card_image_action)
+
+        card_image_action = QAction("Сбросить до заводских", self)
+        card_image_action.triggered.connect(self.change_wallpapers_reserve)
+        customization.addAction(card_image_action)
+
+        customization.addSeparator()
+
         self.deck = []
         self.deal_n = 3  # Number of cards to deal each time
         self.rounds_n = 3  # Number of rounds (restacks) before end.
@@ -561,6 +578,37 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("Ronery")
         self.show()
+
+    def change_wallpapers(self):
+        try:
+            home_dir = str(Path.home())
+            fname = QFileDialog.getOpenFileName(self, 'Open file', home_dir)
+
+            felt = QBrush(QPixmap(fname[0]))
+            self.scene.setBackgroundBrush(felt)
+        except Exception as e:
+            print(e)
+
+    def change_wallpapers_reserve(self):
+        try:
+            fname = 'images/felt_reserve.png'
+
+            felt = QBrush(QPixmap(fname))
+            self.scene.setBackgroundBrush(felt)
+        except Exception as e:
+            print(e)
+        
+    def change_card_image(self):
+        try:
+            global CARD_BACK
+            home_dir = str(Path.home())
+            fname = QFileDialog.getOpenFileName(self, 'Open file', home_dir)
+
+            CARD_BACK = QImage(fname[0])
+
+            self.back = QPixmap(fname[0])
+        except Exception as e:
+            print(e)
 
     def restart_game(self):
         reply = QMessageBox.question(self, "Deal again", "Are you sure you want to start a new game?",
